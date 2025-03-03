@@ -13,7 +13,7 @@ CYAN='\e[1;36m'
 NC='\e[0m'
 
 # Grabs the current console user
-currentUser=$(whoami)
+currentUser="kali"
 
 #-------------------------------------------------------------------------#
 #-------------------------------------------------------------------------#
@@ -143,6 +143,8 @@ portScanMode() {
         
 }
 
+
+
 # This function is  responsible for performing subdomain fuzzing on the target
 # HTB machine.
 dnsMode() {
@@ -150,8 +152,10 @@ dnsMode() {
         echo -e "${PURPLE}[⊙]${NC} Start DNS fuzzing? (s/n): \c"
         read dns
         if [ "$dns" == "s" ]; then
+            echo -e "${PURPLE}[⊙]${NC} Select Port?: \c"
+            read dport
             show_loading
-            ffuf -c -u http://$machineName.htb -H "Host: FUZZ.$machineName.htb" -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-20000.txt -t 100 -ac -o output -of md
+            ffuf -c -u http://$machineName.htb:$dport -H "Host: FUZZ.$machineName.htb" -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-20000.txt -t 100 -ac -o output -of md
             output=$(cat output | cut -d "|" -f4 | tail -n 2 | grep -v "/\/" | tr -d '/' | sed 's/:---------------//' > output)
             check=$(wc -w output | cut -d " " -f1)
             tr -d ' ' < output | grep -v '^$' > output1
@@ -202,22 +206,36 @@ dirMode() {
 ##########################################################################
 # This section is responsible for the main initial logic of the program. #
 ##########################################################################
-#
-# Calls the main banner function
-show_banner
+
 
 # Verify if a valid mode was passed to the program.
 if [ $# -eq 0 ]; then
-    echo -e "${RED}[⌀]${NC} Invalid usage mode! Use one of the available: 'all', 'portscan', 'fdir' or 'dns'."
+    echo -e "Usage: copland [Mode] [Flag]\n"
+    echo -e "Available Mode:"
+    echo -e "  all       Execute all modes"
+    echo -e "  portscan  Execute Portscan"
+    echo -e "  dns       Execute DNS Fuzzing"
+    echo -e "  fdir      Execute Directory Fuzzing\n"
+    echo -e "Flags:"
+    echo -e "   --no-banner    Remove the banner\n"
     exit 1
 fi
 
-# Asks the user about the machine information such as its name and IP.
+# Calls the main banner function
+if [ "$2" == "--no-banner" ];then
+    :
+else
+    show_banner
+fi
+
+# Asks the user about the machine information such as its name IP and OS.
 echo ""
 echo -e "${PURPLE}[⊙]${NC} Enter the machine name: \c"
 read machineName
 echo -e "${PURPLE}[⊙]${NC} Enter the machine IP: \c"
 read machineIP
+echo -e "${PURPLE}[⊙]${NC} Enter the OS: \c"
+read machineOS
 
 # Calls the function responsible for creating the machine folder locally.
 createMachineDirectory
