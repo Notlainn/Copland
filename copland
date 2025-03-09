@@ -119,6 +119,16 @@ getMachineIcon() {
 	echo -e "${PURPLE}[⌀]${NC} Url icon: $icon"
 }
 
+createDnsConfig() {
+ 	verify=$(grep -w "$machineIP $machineName" /etc/hosts)
+    	if [ -n "$verify" ]; then
+    	    echo -e "${RED}[⌀]${NC} Domain already exists on /etc/hosts"
+   	 else
+   	     echo "$machineIP $machineName" | sudo tee -a /etc/hosts > /dev/null
+    	    echo -e "${GREEN}[⊙]${NC} $machineIP $machineName added to /etc/hosts"
+   	 fi		
+}
+
 #-------------------------------------------------------------------------#
 #-------------------------------------------------------------------------#
 
@@ -133,7 +143,7 @@ portScanMode() {
         echo -e "${PURPLE}[⊙]${NC} Start Portscan?(s/n): \c"
         read pscan
         if [ "$pscan" == "s" ]; then
-            cd /home/$currentUser/Desktop/HTB/$machineName
+            cd /home/$currentUser/Desktop/HTB/$machineDir
             show_loading
             rustscan -r 1-65535 --ulimit 5000 -t 2000 -a $machineIP -- -sV -sC -Pn -oN scan.txt
             echo -e "${GREEN}[⊙]${NC} Portscan finished!"
@@ -155,14 +165,14 @@ dnsMode() {
             echo -e "${PURPLE}[⊙]${NC} Select Port?: \c"
             read dport
             show_loading
-            ffuf -c -u http://$machineName.htb:$dport -H "Host: FUZZ.$machineName.htb" -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-20000.txt -t 100 -ac -o output -of md
+            ffuf -c -u http://$machineName:$dport -H "Host: FUZZ.$machineName" -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-20000.txt -t 100 -ac -o output -of md
             output=$(cat output | cut -d "|" -f4 | tail -n 2 | grep -v "/\/" | tr -d '/' | sed 's/:---------------//' > output)
             check=$(wc -w output | cut -d " " -f1)
             tr -d ' ' < output | grep -v '^$' > output1
             subdomain=$(cat output1)
             if [ "$check" -ge "1" ]; then
             	echo -e "${GREEN}[⊙]${NC} Subdomain founded!" 
-                sudo sed -i "s|$machineIP $machineName.htb|$machineIP $machineName.htb $subdomain.$machineName.htb|" /etc/hosts
+                sudo sed -i "s|$machineIP $machineName|$machineIP $machineName $subdomain.$machineName|" /etc/hosts
       	        echo -e "${GREEN}[⊙]${NC} Subdomain added to /etc/hosts"
             else
             	echo -e "${RED}[⌀]${NC} No subdomain founded!"
@@ -187,13 +197,13 @@ dirMode() {
 	  read tool
 	    if [ "$tool" == "1" ];then
 	        show_loading
-	        ffuf -u http://$machineName.htb:$port/FUZZ -w /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt -mc 200,301,403
+	        ffuf -c -u http://$machineName:$port/FUZZ -w /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt -mc 200,301,403
 	    elif [ "$tool" == "2" ];then
 	    	show_loading
-	    	feroxbuster -u http://$machineName.htb:$port/ -w /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt -A -t 30 --filter-status 404
+	    	feroxbuster -u http://$machineName:$port/ -w /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt -A -t 30 --filter-status 404
 	    else 
 	    	show_loading
-	    	gobuster dir -u http://$machineName.htb:$port -w /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt
+	    	gobuster dir -u http://$machineName:$port -w /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt
 	    fi
     else
     	echo -e "${RED}[⌀]${NC} Directory fuzzing canceled!"
@@ -222,35 +232,59 @@ if [ $# -eq 0 ]; then
 fi
 
 # Calls the main banner function
-if [ "$2" == "--no-banner" ];then
+if [[ " $* " == *" --no-banner "* ]]; then
     :
 else
     show_banner
 fi
 
-# Asks the user about the machine information such as its name IP and OS.
-echo ""
-echo -e "${PURPLE}[⊙]${NC} Enter the machine name: \c"
-read machineName
-echo -e "${PURPLE}[⊙]${NC} Enter the machine IP: \c"
-read machineIP
-echo -e "${PURPLE}[⊙]${NC} Enter the OS: \c"
-read machineOS
+LOG_FILE="/home/kali/Desktop/HTB/.last_machine_info"	
 
-# Calls the function responsible for creating the machine folder locally.
-createMachineDirectory
-
-# Verify if the machine IP address and domain already exists within the "hosts" file.
-verify=$(grep -w "$machineIP $machineName.htb" /etc/hosts)
-if [ -n "$verify" ]; then # If domain already exists
-    echo -e "${RED}[⌀]${NC} Domain already exists on /etc/hosts"
-else
-    echo "$machineIP $machineName.htb" | sudo tee -a /etc/hosts > /dev/null
-    echo -e "${GREEN}[⊙]${NC} $machineIP $machineName.htb added to /etc/hosts"
+# 
+if [[ -f "$LOG_FILE" ]]; then
+    source "$LOG_FILE"  # 
+    echo -e "${YELLOW}[?]${NC} Reuse last machine info? (y/n): \c"
+    read reuse
+    if [[ "$reuse" == "y" ]]; then
+        echo -e "${GREEN}[⊙]${NC} Using last saved machine: $machineName ($machineIP, $machineOS)"
+    else
+        rm -f "$LOG_FILE"  # 
+    fi
 fi
 
-# Calls the function to download the machine icon.
-getMachineIcon
+#
+if [[ ! -f "$LOG_FILE" ]]; then
+    echo ""
+    echo -e "${PURPLE}[⊙]${NC} Enter the machine name: \c"
+    read machineName
+    machineDir=$machineName
+    echo -e "${PURPLE}[⊙]${NC} Enter the machine IP: \c"
+    read machineIP
+    echo -e "${PURPLE}[⊙]${NC} Enter the OS: \c"
+    read machineOS
+    
+    # Calls the function to create the directory
+    createMachineDirectory
+    # Calls the function to download the machine icon.
+    getMachineIcon
+    
+    machineDNS=$(curl -s -i http://$machineIP | egrep -i "htb" | cut -d '/' -f3 | sort -u)
+    
+    if [[ "$machineDNS" == *"htb"* ]]; then
+        machineName="$machineDNS"
+    else 
+        machineName="$machineName.htb"
+    fi
+    
+    # Calls the function to configure the /etc/hosts
+    createDnsConfig
+    
+    # Add the machine info into the log file
+    echo "machineName='$machineName'" > "$LOG_FILE"
+    echo "machineIP='$machineIP'" >> "$LOG_FILE"
+    echo "machineOS='$machineOS'" >> "$LOG_FILE"
+     
+fi
 
 # Verifies which usage mode was passed as user input
 case $1 in
