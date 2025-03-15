@@ -146,14 +146,12 @@ portScanMode() {
             cd /home/$currentUser/Desktop/HTB/$machineDir
             show_loading
             rustscan -r 1-65535 --ulimit 5000 -t 2000 -a $machineIP -- -sV -sC -Pn -oN scan.txt
+            cat /home/$currentUser/Desktop/HTB/$machineDir/scan.txt | egrep "open" | cut -d "/" -f1 > /home/$currentUser/Desktop/HTB/$machineDir/ports.txt
             echo -e "${GREEN}[⊙]${NC} Portscan finished!"
         else 
             echo -e "${RED}[⌀]${NC} Portscan canceled!"
-        fi
-        
+        fi      
 }
-
-
 
 # This function is  responsible for performing subdomain fuzzing on the target
 # HTB machine.
@@ -208,8 +206,72 @@ dirMode() {
     else
     	echo -e "${RED}[⌀]${NC} Directory fuzzing canceled!"
     fi
+}	
+smbMode() {
+if [[ " ${found_ports[@]} " =~ " 445 " ]]; then
+    echo -e "${GREEN}[+] SMB identificado, iniciando enumeração...${NC}"
+    nxc smb $machineIP -u "" -p "" --shares --log /home/$currentUser/Desktop/HTB/$machineDir/smb.txt > /dev/null &
+    nxc smb $machineIP -u "a" -p "" --shares --log /home/$currentUser/Desktop/HTB/$machineDir/smb.txt > /dev/null &
+fi
 }
 
+
+identifyServices() {
+# 
+scan_file="/home/$currentUser/Desktop/HTB/$machineDir/ports.txt"
+
+# Dicionário de portas e serviços conhecidos
+declare -A services=(
+    [21]="FTP"
+    [22]="SSH"
+    [53]="DNS"
+    [80]="HTTP"
+    [88]="Kerberos"
+    [135]="MS RPC"
+    [139]="NetBIOS"
+    [389]="LDAP"
+    [443]="HTTPS"
+    [445]="SMB"
+    [464]="Kerberos (kpasswd)"
+    [593]="RPC over HTTP"
+    [636]="LDAPS"
+    [1433]="Microsoft SQL Server"
+    [1883]="MQTT"
+    [2179]="Hyper-V RDP"
+    [3000]="Kubernetes Dashboard / Dev Server"
+    [3268]="Global Catalog (LDAP)"
+    [3269]="Global Catalog SSL (LDAPS)"
+    [3389]="RDP"
+    [5000]="Docker Registry / Flask"
+    [5672]="AMQP (RabbitMQ)"
+    [5722]="DFSR"
+    [5985]="WinRM (HTTP)"
+    [8000]="Alternativa HTTP"
+    [8008]="Google Chromecast"
+    [8065]="Mattermost"
+    [8080]="Tomcat / HTTP Alternativo"
+    [8443]="HTTPS Alternativo"
+)
+
+# Array para armazenar as portas encontradas
+found_ports=()
+
+# Cabeçalho da saída
+echo -e "\n${PURPLE}┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓"
+echo -e "${PURPLE}┃              🖥️  Active Services             ┃"
+echo -e "${PURPLE}┃━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┃"
+
+# Passo 1: Identificar as portas abertas e exibir de forma organizada
+while IFS= read -r port; do
+    if [[ -n "${services[$port]}" ]]; then
+	printf "${PURPLE}┃ ⊙ %-30s -> ${GREEN}%-5s${NC}   ${PURPLE}┃${NC}\n" "[${services[$port]}]" "$port"
+        found_ports+=("$port") # Armazena a porta identificada
+    fi
+done < "$scan_file"
+
+echo -e "${PURPLE}└━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┘\n"
+}
+	
 #-------------------------------------------------------------------------#
 #-------------------------------------------------------------------------#
 
@@ -217,25 +279,23 @@ dirMode() {
 # This section is responsible for the main initial logic of the program. #
 ##########################################################################
 
-
 # Verify if a valid mode was passed to the program.
 if [ $# -eq 0 ]; then
     echo -e "Usage: copland [Mode] [Flag]\n"
     echo -e "Available Mode:"
     echo -e "  all       Execute all modes"
-    echo -e "  portscan  Execute Portscan"
     echo -e "  dns       Execute DNS Fuzzing"
     echo -e "  fdir      Execute Directory Fuzzing\n"
     echo -e "Flags:"
-    echo -e "   --no-banner    Remove the banner\n"
+    echo -e "   --banner    Show the banner\n"
     exit 1
 fi
 
 # Calls the main banner function
-if [[ " $* " == *" --no-banner "* ]]; then
-    :
-else
+if [[ " $* " == *" --banner "* ]]; then
     show_banner
+else
+    :
 fi
 
 LOG_FILE="/home/kali/Desktop/HTB/.last_machine_info"	
@@ -243,7 +303,7 @@ LOG_FILE="/home/kali/Desktop/HTB/.last_machine_info"
 # 
 if [[ -f "$LOG_FILE" ]]; then
     source "$LOG_FILE"  # 
-    echo -e "${YELLOW}[?]${NC} Reuse last machine info? (y/n): \c"
+    echo -e "${PURPLE}[?]${NC} Reuse last machine info? (y/n): \c"
     read reuse
     if [[ "$reuse" == "y" ]]; then
         echo -e "${GREEN}[⊙]${NC} Using last saved machine: $machineName ($machineIP, $machineOS)"
@@ -268,16 +328,28 @@ if [[ ! -f "$LOG_FILE" ]]; then
     # Calls the function to download the machine icon.
     getMachineIcon
     
-    machineDNS=$(curl -s -i http://$machineIP | egrep -i "htb" | cut -d '/' -f3 | sort -u)
-    
-    if [[ "$machineDNS" == *"htb"* ]]; then
-        machineName="$machineDNS"
-    else 
+    # 
+    machineDNS1=$(curl -s -i http://$machineIP --connect-timeout 5 | egrep -i "Location" | cut -d '/' -f3 | sort -u)
+
+    # 
+    machineDNS2=$(curl -s http://$machineIP --connect-timeout 5 | grep -oE '\b[a-zA-Z0-9.-]+\.htb\b' | sort -u | tr '\n' ' ')
+
+    #
+    if [[ "$machineDNS1" == *"htb"* ]]; then
+        machineName="$machineDNS1"
+    elif [[ "$machineDNS2" == *"htb"* ]]; then
+        machineName="$machineDNS2"
+    else
         machineName="$machineName.htb"
     fi
     
     # Calls the function to configure the /etc/hosts
     createDnsConfig
+    #
+    portScanMode
+    #
+    identifyServices
+    #
     
     # Add the machine info into the log file
     echo "machineName='$machineName'" > "$LOG_FILE"
@@ -290,16 +362,10 @@ fi
 case $1 in
     all)
     
-    	portScanMode
     	dnsMode
     	dirMode
     	;;
-    	
-    portscan)
-
-    	portScanMode
-    	;;
-    
+    	 
     dns)
         
     	dnsMode
@@ -311,6 +377,6 @@ case $1 in
     	;;
     
     *)
-        echo -e "${RED}[⌀]${NC} Invalid usage mode! Use 'all', 'portscan', 'fdir' or 'dns'."
+        echo -e "${RED}[⌀]${NC} Invalid usage mode! Use 'all','fdir' or 'dns'."
         ;;
 esac
