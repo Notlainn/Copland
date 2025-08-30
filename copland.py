@@ -5,7 +5,7 @@ from utils import *
 
 log_file="/home/kali/Desktop/HTB/.last_machine_info"
 
-#banner()
+banner()
 
 if os.path.exists(log_file):
     reuse = str(input(Style.BRIGHT + input_color + "╚?╗" + Style.RESET_ALL + Style.BRIGHT + " Reuse last machine info? (y/n): " + input_color +""))
