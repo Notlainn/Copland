@@ -64,13 +64,13 @@ def execute_command(cmd, msg):
             proc.wait()
 
             if proc.returncode == 0:
-                sp.write(Style.BRIGHT + success_color + "[⊙]" + Style.RESET_ALL + Style.BRIGHT +" Portscan Finished!")
+                sp.write(Style.BRIGHT + success_color + "[⊙]" + Style.RESET_ALL + Style.BRIGHT +" Finished!")
             else:
                 sp.fail("[⌀] ")
 
         except KeyboardInterrupt:
             proc.terminate()
-            sp.write(error_color + "[⌀] Stopped!")
+            sp.write(error_color + Style.BRIGHT + "[⌀] Stopped!")
         except Exception as e:
             proc.terminate()
             sp.fail("[⌀] ")
@@ -122,7 +122,7 @@ def get_dns(name, ip):
         except IndexError as e:
             None
 
-    except requests.exceptions.ConnectTimeout as e:
+    except (requests.exceptions.ConnectTimeout, requests.exceptions.ReadTimeout) as e:
         None
      
     if (machine_dns1 != None):
@@ -143,18 +143,15 @@ def configure_dns(name, ip):
         output = subprocess.check_output(cmd,shell=True)
         print(Style.BRIGHT + success_color + "╔⊙╝" + Style.RESET_ALL + Style.BRIGHT + "{} {} added to /etc/hosts".format(ip, name))
 
-def choose_func(name, ip, dns):
+def linux_func(name, ip, dns):
+
     questions = [
     inquirer.Checkbox("modes",message=Style.BRIGHT + "Choose functions to use (backspace)",
                               choices=['portscan', 'fuzzDns', 'fuzzDir'],
                      ),
             ]
-    global mode
+    global mode, machine_name, machine_ip, machine_dns
     mode = inquirer.prompt(questions, theme=CustomTheme())
-
-    global machine_name
-    global machine_ip
-    global machine_dns
 
     machine_name = name
     machine_ip = ip
@@ -163,9 +160,35 @@ def choose_func(name, ip, dns):
     for func in mode["modes"]:
         globals()[func]()
  
+def windows_func(name, ip, dns, user, passw):
+
+    questions = [
+    inquirer.Checkbox("modes",message=Style.BRIGHT + "Choose functions to use (backspace)",
+                              choices=['portscan', 'smb'],
+                     ),
+            ]
+    global mode, machine_name, machine_ip, machine_dns, machine_user, machine_pass
+
+    mode = inquirer.prompt(questions, theme=CustomTheme())
+
+    machine_name = name
+    machine_ip = ip
+    machine_dns = dns
+    machine_user = user
+    machine_pass = passw
+
+    for func in mode["modes"]:
+        globals()[func]()
+
+def smb():
+
+    msg = Style.BRIGHT + input_color + Style.BRIGHT + "Running nxc..."
+    cmd = "nxc smb {} -u '{}' -p '{}' --shares".format(machine_ip, machine_user, machine_pass)
+    execute_command(cmd, msg)
+
 def portscan():
 
-    msg = Style.BRIGHT + input_color + Style.BRIGHT +"Running portscan..."
+    msg = Style.BRIGHT + input_color + "Running portscan..." + Style.RESET_ALL
     cmd = "rustscan -r 1-65535 --ulimit 5000 -t 2000 -a {} -- -v -sV -Pn -oN /home/kali/Desktop/HTB/{}/scan.txt 2> /dev/null".format(machine_ip, machine_name)
     execute_command(cmd, msg)
 
@@ -193,3 +216,25 @@ def fuzzDir():
     msg = Style.BRIGHT + input_color + "Running directory fuzzing..."
     cmd = 'ffuf -s -c -u http://{}:{}/FUZZ -w wordlists/{} -mc 200,301,403'.format(machine_dns, port, answer["files"])
     execute_command(cmd, msg)
+
+def verifyOS(name, ip, dns, os, user, passw, assumed):
+
+    match assumed:
+        case "y":
+            match os:
+                case "windows":
+                    windows_func(name, ip, dns, user, passw)
+                case "linux":
+                    linux_func(name, ip, dns, user, passw)
+                case _:
+                    print("error")      
+        case "n":
+            match os:
+                case "windows":
+                    windows_func(name, ip, dns, user, passw)
+                case "linux":
+                    linux_func(name, ip, dns, user, passw)
+                case _:
+                    print("error")    
+        case _:
+            print("error")
